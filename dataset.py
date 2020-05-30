@@ -8,24 +8,28 @@ import PIL.Image as Image
 
 
 class WheatDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset_root, transforms=None):
-        self.dataset_root = pathlib.Path(dataset_root)
-        self.train_filenames = os.listdir(self.dataset_root / 'train')
+    def __init__(self, files_path, csv_path, transforms=None):
+        self.files_path = pathlib.Path(files_path)
+        csv_path = pathlib.Path(csv_path)
+        self.train_filenames = []
         self.transforms = transforms
 
         self.classes = dict()
         self.boxes = collections.defaultdict(list)
         self.labels = collections.defaultdict(list)
-        with open(self.dataset_root / 'train.csv') as f:
+        with open(csv_path) as f:
             csv_reader = csv.reader(f)
             for row in csv_reader:
-                if row == 'image_id,width,height,bbox,source\n':
+                if row[0] == 'image_id':
                     continue
                 filename, _, _, bbox, class_name = row
+                filename += '.jpg'
+                if len(self.train_filenames) == 0 or self.train_filenames[-1] != filename:
+                    self.train_filenames.append(filename)
                 if class_name not in self.classes:  # 0 is background
-                    self.classes[class_name] = len(self.classes)+1
-                self.boxes[filename + '.jpg'].append(eval(bbox))
-                self.labels[filename + '.jpg'].append(self.classes[class_name])
+                    self.classes[class_name] = len(self.classes) + 1
+                self.boxes[filename].append(eval(bbox))
+                self.labels[filename].append(self.classes[class_name])
 
     def __len__(self):
         return len(self.train_filenames)
@@ -36,7 +40,7 @@ class WheatDataset(torch.utils.data.Dataset):
         label = self.labels[filename]
 
         filename = pathlib.Path(filename)
-        img = Image.open(self.dataset_root / 'train' / filename)
+        img = Image.open(self.files_path / filename)
 
         if self.transforms is not None:
             img, bbox, label = self.transforms(img, bbox, label)
