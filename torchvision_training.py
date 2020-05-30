@@ -4,6 +4,10 @@ import torch.optim as optim
 import torchvision
 import functools
 import argparse
+import time
+import datetime
+import pathlib
+import json
 
 from dataset import *
 from transforms import *
@@ -11,12 +15,20 @@ from transforms import *
 
 def main():
     args = parse_args()
+    timestamp = datetime.datetime.today()
+    timestamp = str(timestamp).replace(' ', '_')
+    store_hyperparams(args, timestamp)
 
     train(args)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train Faster RCNN')
+
+    parser.add_argument('--images-dir', type=str, default='./data/train')
+    parser.add_argument('--train-csv-path', type=str,
+                        default='./data/train.csv')
+    parser.add_argument('--val-csv-path', type=str, default='./data/val.csv')
 
     parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--batch-size', type=int, default=8)
@@ -26,6 +38,16 @@ def parse_args():
     parser.add_argument('--device', type=str, default="cuda")
 
     return parser.parse_args()
+
+
+def store_hyperparams(args, timestamp):
+    hyperparams = {}
+    for arg in vars(args):
+        hyperparams[arg] = getattr(args, arg)
+
+    filepath = pathlib.Path('./logs') / timestamp
+    with open(filepath, 'w+') as f:
+        f.write(json.dumps(hyperparams))
 
 
 def get_optimizer(args, model_params):
@@ -39,9 +61,9 @@ def get_optimizer(args, model_params):
 def train(args):
     trans = Compose([ToTensor()])
     train_dataset = WheatDataset(
-        './data/train', './data/train.csv', transforms=trans)
+        args.images_dir, args.train_csv_path, transforms=trans)
     val_dataset = WheatDataset(
-        './data/train', './data/val.csv', transforms=trans)
+        args.images_dir, args.val_csv_path, transforms=trans)
     num_classes = len(train_dataset.classes) + 1  # include background
     print('train samples = ', len(train_dataset))
     print('val samples = ', len(val_dataset))
@@ -56,7 +78,6 @@ def train(args):
 
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
         pretrained=False, pretrained_backbone=False, num_classes=num_classes)
-
     model = model.to(device)
 
     optimizer = get_optimizer(args, model.parameters())
