@@ -1,1 +1,0 @@
-{"images_dir": "./data/train", "train_csv_path": "./data/train.csv", "val_csv_path": "./data/val.csv", "epochs": 20, "batch_size": 2, "optimizer": "SGD", "lr": 0.003, "momentum": 0.8, "device": "cpu"}

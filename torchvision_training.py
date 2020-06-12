@@ -4,10 +4,8 @@ import torch.optim as optim
 import torchvision
 import functools
 import argparse
-import time
-import datetime
-import pathlib
-import json
+
+from torch.utils.tensorboard import SummaryWriter
 
 from dataset import *
 from transforms import *
@@ -15,11 +13,10 @@ from transforms import *
 
 def main():
     args = parse_args()
-    timestamp = datetime.datetime.today()
-    timestamp = str(timestamp).replace(' ', '_')
-    store_hyperparams(args, timestamp)
+    writer = SummaryWriter()
+    store_hyperparams(args, writer)
 
-    train(args)
+    train(args, writer)
 
 
 def parse_args():
@@ -40,14 +37,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def store_hyperparams(args, timestamp):
+def store_hyperparams(args, summary_writer):
     hyperparams = {}
     for arg in vars(args):
         hyperparams[arg] = getattr(args, arg)
 
-    filepath = pathlib.Path('./logs') / timestamp
-    with open(filepath, 'w+') as f:
-        f.write(json.dumps(hyperparams))
+    summary_writer.add_hparams(hyperparams, {})
+    summary_writer.flush()
 
 
 def get_optimizer(args, model_params):
@@ -58,7 +54,7 @@ def get_optimizer(args, model_params):
         return optim.SGD(model_params, args.lr, momentum=args.momentum)
 
 
-def train(args):
+def train(args, summary_writer):
     trans = Compose([ToTensor()])
     train_dataset = WheatDataset(
         args.images_dir, args.train_csv_path, transforms=trans)
@@ -92,10 +88,49 @@ def train(args):
                 output['loss_box_reg'] + output['loss_objectness'] + \
                 output['loss_rpn_box_reg']
             loss.backward()
-            print(output)
+            print(
+                f"epoch {epoch+1}/{args.epochs}: loss_classifier={output['loss_classifier'].item()}, loss_box_reg={output['loss_box_reg'].item()}, loss_objectness={output['loss_objectness'].item()}, loss_rpn_box_reg={output['loss_rpn_box_reg'].item()}")
             optimizer.step()
 
-        break
+            break
+
+        with torch.no_grad():
+            loss_values = {'train': 0., 'val': 0.}
+            loss_classifier = {'train': 0., 'val': 0.}
+            loss_box_reg = {'train': 0., 'val': 0.}
+            loss_objectness = {'train': 0., 'val': 0.}
+            loss_rpn_box_reg = {'train': 0., 'val': 0.}
+            for img, target in train_dataloader:
+                output = model(img, target)
+                loss_value = output['loss_classifier'] + \
+                    output['loss_box_reg'] + output['loss_objectness'] + \
+                    output['loss_rpn_box_reg']
+                loss_values['train'] += loss_value
+                loss_classifier['train'] += output['loss_classifier']
+                loss_box_reg['train'] += output['loss_box_reg']
+                loss_objectness['train'] += output['loss_objectness']
+                loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
+                break
+
+            for img, target in val_dataloader:
+                output = model(img, target)
+                loss_value = output['loss_classifier'] + \
+                    output['loss_box_reg'] + output['loss_objectness'] + \
+                    output['loss_rpn_box_reg']
+                loss_values['val'] += loss_value
+                loss_classifier['train'] += output['loss_classifier']
+                loss_box_reg['train'] += output['loss_box_reg']
+                loss_objectness['train'] += output['loss_objectness']
+                loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
+                break
+            summary_writer.add_scalars('Loss', loss_values, epoch)
+            summary_writer.add_scalars(
+                'Loss classifier', loss_classifier, epoch)
+            summary_writer.add_scalars('Loss box reg', loss_box_reg, epoch)
+            summary_writer.add_scalars(
+                'Loss objectness', loss_objectness, epoch)
+            summary_writer.add_scalars(
+                'Loss rpn box reg', loss_rpn_box_reg, epoch)
 
 
 def collate(samples, device=None):
