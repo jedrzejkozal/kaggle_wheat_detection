@@ -4,11 +4,12 @@ import torch.optim as optim
 import torchvision
 import functools
 import argparse
+import albumentations as A
+from albumentations.pytorch import ToTensor
 
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import *
-from transforms import *
 
 
 def main():
@@ -33,6 +34,8 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.003)
     parser.add_argument('--momentum', type=float, default=0.8)
     parser.add_argument('--device', type=str, default="cuda")
+    parser.add_argument('--min_area', type=float, default=0.)
+    parser.add_argument('--min_visibility', type=float, default=0.)
 
     return parser.parse_args()
 
@@ -54,12 +57,24 @@ def get_optimizer(args, model_params):
         return optim.SGD(model_params, args.lr, momentum=args.momentum)
 
 
+def get_train_transforms(min_area, min_visibility):
+    return A.Compose([ToTensor()],
+                     bbox_params=A.BboxParams(format='coco', min_area=min_area,
+                                              min_visibility=min_visibility, label_fields=['labels']))
+
+
+def get_val_transforms():
+    return ToTensor()
+
+
 def train(args, summary_writer):
-    trans = Compose([ToTensor()])
+    train_transforms = get_train_transforms(
+        args.min_area, args.min_visibility)
+    val_transforms = get_val_transforms()
     train_dataset = WheatDataset(
-        args.images_dir, args.train_csv_path, transforms=trans)
+        args.images_dir, args.train_csv_path, transforms=train_transforms)
     val_dataset = WheatDataset(
-        args.images_dir, args.val_csv_path, transforms=trans)
+        args.images_dir, args.val_csv_path, transforms=val_transforms)
     num_classes = len(train_dataset.classes) + 1  # include background
     print('train samples = ', len(train_dataset))
     print('val samples = ', len(val_dataset))
@@ -138,17 +153,17 @@ def collate(samples, device=None):
     targets = []
     for img, bbox, label in samples:
         images.append(img.to(device))
+        bbox = torch.Tensor(bbox)
+
         bbox = xmin_ymin_width_height_to_xmin_ymin_xmax_ymax(bbox)
         targets.append({
             'boxes': bbox.to(device),
-            'labels': label.long().to(device)
+            'labels': torch.Tensor(label).long().to(device)
         })
     return images, targets
 
 
 def xmin_ymin_width_height_to_xmin_ymin_xmax_ymax(box):
-    if box.ndim < 2:
-        return box
     return torch.cat([box[:, :2], box[:, :2] + box[:, 2:]], dim=1)
 
 

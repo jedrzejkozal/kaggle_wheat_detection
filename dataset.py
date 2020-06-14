@@ -4,7 +4,7 @@ import pathlib
 import torch
 import torch.utils.data
 import collections
-import PIL.Image as Image
+import cv2
 
 
 class WheatDataset(torch.utils.data.Dataset):
@@ -36,13 +36,16 @@ class WheatDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         filename = self.train_filenames[index]
-        bbox = self.boxes[filename]
+        bboxes = self.boxes[filename]
         label = self.labels[filename]
 
-        filename = pathlib.Path(filename)
-        img = Image.open(self.files_path / filename)
+        filepath = self.files_path / filename
+        img = cv2.imread(str(filepath))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        if self.transforms is not None:
-            img, bbox, label = self.transforms(img, bbox, label)
+        if self.transforms:
+            augumented = self.transforms(
+                image=img, bboxes=bboxes, labels=label)
+            img, bboxes = augumented['image'], augumented['bboxes']
 
-        return img, bbox, label
+        return img, bboxes, label
