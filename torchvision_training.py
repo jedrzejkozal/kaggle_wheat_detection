@@ -49,24 +49,6 @@ def store_hyperparams(args, summary_writer):
     summary_writer.flush()
 
 
-def get_optimizer(args, model_params):
-    optimizer_str = args.optimizer.upper()
-    if optimizer_str == 'ADAM':
-        return optim.Adam(model_params, args.lr)
-    elif optimizer_str == 'SGD':
-        return optim.SGD(model_params, args.lr, momentum=args.momentum)
-
-
-def get_train_transforms(min_area, min_visibility):
-    return A.Compose([ToTensor()],
-                     bbox_params=A.BboxParams(format='coco', min_area=min_area,
-                                              min_visibility=min_visibility, label_fields=['labels']))
-
-
-def get_val_transforms():
-    return ToTensor()
-
-
 def train(args, summary_writer):
     train_transforms = get_train_transforms(
         args.min_area, args.min_visibility)
@@ -104,48 +86,23 @@ def train(args, summary_writer):
                 output['loss_rpn_box_reg']
             loss.backward()
             print(
-                f"epoch {epoch+1}/{args.epochs}: loss_classifier={output['loss_classifier'].item()}, loss_box_reg={output['loss_box_reg'].item()}, loss_objectness={output['loss_objectness'].item()}, loss_rpn_box_reg={output['loss_rpn_box_reg'].item()}")
+                "epoch {}/{}: loss_classifier={:.4f}, loss_box_reg={:.4f}, loss_objectness={:.4f}, loss_rpn_box_reg={:.4f}".format(epoch + 1, args.epochs, output['loss_classifier'].item(), output['loss_box_reg'].item(), output['loss_objectness'].item(), output['loss_rpn_box_reg'].item()))
             optimizer.step()
 
             break
 
-        with torch.no_grad():
-            loss_values = {'train': 0., 'val': 0.}
-            loss_classifier = {'train': 0., 'val': 0.}
-            loss_box_reg = {'train': 0., 'val': 0.}
-            loss_objectness = {'train': 0., 'val': 0.}
-            loss_rpn_box_reg = {'train': 0., 'val': 0.}
-            for img, target in train_dataloader:
-                output = model(img, target)
-                loss_value = output['loss_classifier'] + \
-                    output['loss_box_reg'] + output['loss_objectness'] + \
-                    output['loss_rpn_box_reg']
-                loss_values['train'] += loss_value
-                loss_classifier['train'] += output['loss_classifier']
-                loss_box_reg['train'] += output['loss_box_reg']
-                loss_objectness['train'] += output['loss_objectness']
-                loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
-                break
+        save_metrics(model, train_dataloader,
+                     val_dataloader, summary_writer, epoch)
 
-            for img, target in val_dataloader:
-                output = model(img, target)
-                loss_value = output['loss_classifier'] + \
-                    output['loss_box_reg'] + output['loss_objectness'] + \
-                    output['loss_rpn_box_reg']
-                loss_values['val'] += loss_value
-                loss_classifier['train'] += output['loss_classifier']
-                loss_box_reg['train'] += output['loss_box_reg']
-                loss_objectness['train'] += output['loss_objectness']
-                loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
-                break
-            summary_writer.add_scalars('Loss', loss_values, epoch)
-            summary_writer.add_scalars(
-                'Loss classifier', loss_classifier, epoch)
-            summary_writer.add_scalars('Loss box reg', loss_box_reg, epoch)
-            summary_writer.add_scalars(
-                'Loss objectness', loss_objectness, epoch)
-            summary_writer.add_scalars(
-                'Loss rpn box reg', loss_rpn_box_reg, epoch)
+
+def get_train_transforms(min_area, min_visibility):
+    return A.Compose([ToTensor()],
+                     bbox_params=A.BboxParams(format='coco', min_area=min_area,
+                                              min_visibility=min_visibility, label_fields=['labels']))
+
+
+def get_val_transforms():
+    return ToTensor()
 
 
 def collate(samples, device=None):
@@ -165,6 +122,54 @@ def collate(samples, device=None):
 
 def xmin_ymin_width_height_to_xmin_ymin_xmax_ymax(box):
     return torch.cat([box[:, :2], box[:, :2] + box[:, 2:]], dim=1)
+
+
+def get_optimizer(args, model_params):
+    optimizer_str = args.optimizer.upper()
+    if optimizer_str == 'ADAM':
+        return optim.Adam(model_params, args.lr)
+    elif optimizer_str == 'SGD':
+        return optim.SGD(model_params, args.lr, momentum=args.momentum)
+
+
+def save_metrics(model, train_dataloader, val_dataloader, summary_writer, epoch):
+    with torch.no_grad():
+        loss_values = {'train': 0., 'val': 0.}
+        loss_classifier = {'train': 0., 'val': 0.}
+        loss_box_reg = {'train': 0., 'val': 0.}
+        loss_objectness = {'train': 0., 'val': 0.}
+        loss_rpn_box_reg = {'train': 0., 'val': 0.}
+        for img, target in train_dataloader:
+            output = model(img, target)
+            loss_value = output['loss_classifier'] + \
+                output['loss_box_reg'] + output['loss_objectness'] + \
+                output['loss_rpn_box_reg']
+            loss_values['train'] += loss_value
+            loss_classifier['train'] += output['loss_classifier']
+            loss_box_reg['train'] += output['loss_box_reg']
+            loss_objectness['train'] += output['loss_objectness']
+            loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
+            break
+
+        for img, target in val_dataloader:
+            output = model(img, target)
+            loss_value = output['loss_classifier'] + \
+                output['loss_box_reg'] + output['loss_objectness'] + \
+                output['loss_rpn_box_reg']
+            loss_values['val'] += loss_value
+            loss_classifier['train'] += output['loss_classifier']
+            loss_box_reg['train'] += output['loss_box_reg']
+            loss_objectness['train'] += output['loss_objectness']
+            loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
+            break
+        summary_writer.add_scalars('Loss', loss_values, epoch)
+        summary_writer.add_scalars(
+            'Loss classifier', loss_classifier, epoch)
+        summary_writer.add_scalars('Loss box reg', loss_box_reg, epoch)
+        summary_writer.add_scalars(
+            'Loss objectness', loss_objectness, epoch)
+        summary_writer.add_scalars(
+            'Loss rpn box reg', loss_rpn_box_reg, epoch)
 
 
 if __name__ == '__main__':
