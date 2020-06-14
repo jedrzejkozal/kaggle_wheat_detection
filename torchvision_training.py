@@ -52,7 +52,7 @@ def store_hyperparams(args, summary_writer):
 def train(args, summary_writer):
     train_transforms = get_train_transforms(
         args.min_area, args.min_visibility)
-    val_transforms = get_val_transforms()
+    val_transforms = get_val_transforms(args.min_area, args.min_visibility)
     train_dataset = WheatDataset(
         args.images_dir, args.train_csv_path, transforms=train_transforms)
     val_dataset = WheatDataset(
@@ -96,13 +96,27 @@ def train(args, summary_writer):
 
 
 def get_train_transforms(min_area, min_visibility):
-    return A.Compose([ToTensor()],
-                     bbox_params=A.BboxParams(format='coco', min_area=min_area,
-                                              min_visibility=min_visibility, label_fields=['labels']))
+    return A.Compose([
+        A.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+        ToTensor()
+    ],
+        bbox_params=A.BboxParams(format='coco', min_area=min_area,
+                                 min_visibility=min_visibility, label_fields=['labels']))
 
 
-def get_val_transforms():
-    return ToTensor()
+def get_val_transforms(min_area, min_visibility):
+    return A.Compose([
+        A.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+        ToTensor()
+    ],
+        bbox_params=A.BboxParams(format='coco', min_area=min_area,
+                                 min_visibility=min_visibility, label_fields=['labels']))
 
 
 def collate(samples, device=None):
