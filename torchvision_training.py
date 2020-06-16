@@ -34,8 +34,8 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.003)
     parser.add_argument('--momentum', type=float, default=0.8)
     parser.add_argument('--device', type=str, default="cuda")
-    parser.add_argument('--min_area', type=float, default=0.)
-    parser.add_argument('--min_visibility', type=float, default=0.)
+    parser.add_argument('--min_area', type=float, default=0.15)
+    parser.add_argument('--min_visibility', type=float, default=0.15)
 
     return parser.parse_args()
 
@@ -97,6 +97,9 @@ def train(args, summary_writer):
 
 def get_train_transforms(min_area, min_visibility):
     return A.Compose([
+        A.VerticalFlip(p=0.5),
+        A.Rotate(p=0.5, border_mode=cv2.BORDER_CONSTANT),
+        A.RandomSizedCrop((600, 600), 1024, 1024, p=0.5),
         A.Normalize(
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225],
