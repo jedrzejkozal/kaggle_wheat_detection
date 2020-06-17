@@ -36,6 +36,8 @@ def parse_args():
     parser.add_argument('--device', type=str, default="cuda")
     parser.add_argument('--min_area', type=float, default=0.15)
     parser.add_argument('--min_visibility', type=float, default=0.15)
+    parser.add_argument('--use_dataset_norm_stats',
+                        action='store_true', default=False)
 
     return parser.parse_args()
 
@@ -50,9 +52,11 @@ def store_hyperparams(args, summary_writer):
 
 
 def train(args, summary_writer):
+    mean, std = get_norm_stats(args)
     train_transforms = get_train_transforms(
-        args.min_area, args.min_visibility)
-    val_transforms = get_val_transforms(args.min_area, args.min_visibility)
+        args.min_area, args.min_visibility, mean, std)
+    val_transforms = get_val_transforms(
+        args.min_area, args.min_visibility, mean, std)
     train_dataset = WheatDataset(
         args.images_dir, args.train_csv_path, transforms=train_transforms)
     val_dataset = WheatDataset(
@@ -95,27 +99,28 @@ def train(args, summary_writer):
                      val_dataloader, summary_writer, epoch)
 
 
-def get_train_transforms(min_area, min_visibility):
+def get_norm_stats(args):
+    if args.use_dataset_norm_stats:
+        return (0.3153, 0.3173, 0.2146), (0.0602, 0.0567, 0.0376)
+    else:
+        return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+
+
+def get_train_transforms(min_area, min_visibility, mean, std):
     return A.Compose([
         A.VerticalFlip(p=0.5),
         A.Rotate(p=0.5, border_mode=cv2.BORDER_CONSTANT),
         A.RandomSizedCrop((600, 600), 1024, 1024, p=0.5),
-        A.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        ),
+        A.Normalize(mean=mean, std=std),
         ToTensor()
     ],
         bbox_params=A.BboxParams(format='coco', min_area=min_area,
                                  min_visibility=min_visibility, label_fields=['labels']))
 
 
-def get_val_transforms(min_area, min_visibility):
+def get_val_transforms(min_area, min_visibility, mean, std):
     return A.Compose([
-        A.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        ),
+        A.Normalize(mean=mean, std=std),
         ToTensor()
     ],
         bbox_params=A.BboxParams(format='coco', min_area=min_area,
