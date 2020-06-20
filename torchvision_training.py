@@ -4,10 +4,13 @@ import torch.optim as optim
 import torchvision
 import functools
 import argparse
+import numpy as np
 import albumentations as A
 from albumentations.pytorch import ToTensor
 
 from torch.utils.tensorboard import SummaryWriter
+
+import metrics.mAP
 
 from dataset import *
 
@@ -37,7 +40,8 @@ def parse_args():
     parser.add_argument('--min_area', type=float, default=0.15)
     parser.add_argument('--min_visibility', type=float, default=0.15)
     parser.add_argument('--use_dataset_norm_stats',
-                        action='store_true', default=False)
+                        action='store_true', default=True)
+    parser.add_argument('--num_workers', type=int, default=0)
 
     return parser.parse_args()
 
@@ -69,12 +73,16 @@ def train(args, summary_writer):
     device = torch.device(args.device)
     collate_fn = functools.partial(collate, device=device)
     train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, collate_fn=collate_fn)
+        train_dataset, batch_size=args.batch_size, collate_fn=collate_fn, num_workers=args.num_workers)
+    train_dataloader_val = torch.utils.data.DataLoader(
+        WheatDataset(
+            args.images_dir, args.train_csv_path, transforms=val_transforms), batch_size=args.batch_size, collate_fn=collate_fn, num_workers=args.num_workers)
     val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size, collate_fn=collate_fn)
+        val_dataset, batch_size=args.batch_size, collate_fn=collate_fn, num_workers=args.num_workers)
 
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
         pretrained=False, pretrained_backbone=False, num_classes=num_classes)
+    initilize_weights(model)
     model = model.to(device)
 
     optimizer = get_optimizer(args, model.parameters())
@@ -82,12 +90,10 @@ def train(args, summary_writer):
     for epoch in range(args.epochs):
         model.train()
         for img, target in train_dataloader:
-            optimizer.zero_grad()
-
             output = model(img, target)
-            loss = output['loss_classifier'] + \
-                output['loss_box_reg'] + output['loss_objectness'] + \
-                output['loss_rpn_box_reg']
+            loss = sum(l for l in output.values())
+
+            optimizer.zero_grad()
             loss.backward()
             print(
                 "epoch {}/{}: loss_classifier={:.4f}, loss_box_reg={:.4f}, loss_objectness={:.4f}, loss_rpn_box_reg={:.4f}".format(epoch + 1, args.epochs, output['loss_classifier'].item(), output['loss_box_reg'].item(), output['loss_objectness'].item(), output['loss_rpn_box_reg'].item()))
@@ -95,8 +101,8 @@ def train(args, summary_writer):
 
             break
 
-        save_metrics(model, train_dataloader,
-                     val_dataloader, summary_writer, epoch)
+        save_metrics(model, train_dataloader_val,
+                     val_dataloader, summary_writer, epoch, num_classes)
 
 
 def get_norm_stats(args):
@@ -146,6 +152,13 @@ def xmin_ymin_width_height_to_xmin_ymin_xmax_ymax(box):
     return torch.cat([box[:, :2], box[:, :2] + box[:, 2:]], dim=1)
 
 
+def initilize_weights(model):
+    def init(m):
+        if type(m) == nn.Conv2d:
+            torch.nn.init.xavier_normal_(m.weight)
+    model.apply(init)
+
+
 def get_optimizer(args, model_params):
     optimizer_str = args.optimizer.upper()
     if optimizer_str == 'ADAM':
@@ -154,44 +167,27 @@ def get_optimizer(args, model_params):
         return optim.SGD(model_params, args.lr, momentum=args.momentum)
 
 
-def save_metrics(model, train_dataloader, val_dataloader, summary_writer, epoch):
+def save_metrics(model, train_dataloader, val_dataloader, summary_writer, epoch, num_classes):
+    model.eval()
     with torch.no_grad():
-        loss_values = {'train': 0., 'val': 0.}
-        loss_classifier = {'train': 0., 'val': 0.}
-        loss_box_reg = {'train': 0., 'val': 0.}
-        loss_objectness = {'train': 0., 'val': 0.}
-        loss_rpn_box_reg = {'train': 0., 'val': 0.}
+        mAP = {'train': 0., 'val': 0.}
+
+        mAP_calc = metrics.mAP.mAP(
+            num_classes, thresholds=np.arange(0.5, 0.755, 0.05))
         for img, target in train_dataloader:
-            output = model(img, target)
-            loss_value = output['loss_classifier'] + \
-                output['loss_box_reg'] + output['loss_objectness'] + \
-                output['loss_rpn_box_reg']
-            loss_values['train'] += loss_value
-            loss_classifier['train'] += output['loss_classifier']
-            loss_box_reg['train'] += output['loss_box_reg']
-            loss_objectness['train'] += output['loss_objectness']
-            loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
+            output = model(img)
+            mAP_calc.add_predictions(output, target)
             break
 
+        mAP['train'] = mAP_calc.get_value()
+
         for img, target in val_dataloader:
-            output = model(img, target)
-            loss_value = output['loss_classifier'] + \
-                output['loss_box_reg'] + output['loss_objectness'] + \
-                output['loss_rpn_box_reg']
-            loss_values['val'] += loss_value
-            loss_classifier['train'] += output['loss_classifier']
-            loss_box_reg['train'] += output['loss_box_reg']
-            loss_objectness['train'] += output['loss_objectness']
-            loss_rpn_box_reg['train'] += output['loss_rpn_box_reg']
+            output = model(img)
+            mAP_calc.add_predictions(output, target)
             break
-        summary_writer.add_scalars('Loss', loss_values, epoch)
-        summary_writer.add_scalars(
-            'Loss classifier', loss_classifier, epoch)
-        summary_writer.add_scalars('Loss box reg', loss_box_reg, epoch)
-        summary_writer.add_scalars(
-            'Loss objectness', loss_objectness, epoch)
-        summary_writer.add_scalars(
-            'Loss rpn box reg', loss_rpn_box_reg, epoch)
+
+        mAP['val'] = mAP_calc.get_value()
+        summary_writer.add_scalars('mAP', mAP, epoch)
 
 
 if __name__ == '__main__':
