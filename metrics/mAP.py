@@ -2,8 +2,8 @@ import torch
 import numpy as np
 import collections
 
-# from metrics.iou import iou
-from iou import iou
+from metrics.iou import iou
+# from iou import iou
 
 
 class mAP:

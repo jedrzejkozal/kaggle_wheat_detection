@@ -11,7 +11,7 @@ from albumentations.pytorch import ToTensor
 from torch.utils.tensorboard import SummaryWriter
 
 import metrics.mAP
-
+from test_set_predictions import *
 from dataset import *
 
 
@@ -27,6 +27,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train Faster RCNN')
 
     parser.add_argument('--images-dir', type=str, default='./data/train')
+    parser.add_argument('--test-images-dir', type=str, default='./data/test')
     parser.add_argument('--train-csv-path', type=str,
                         default='./data/train.csv')
     parser.add_argument('--val-csv-path', type=str, default='./data/val.csv')
@@ -103,6 +104,10 @@ def train(args, summary_writer):
 
         save_metrics(model, train_dataloader_val,
                      val_dataloader, summary_writer, epoch, num_classes)
+
+    torch.save(model, 'faster_rcnn.pt')
+    preds = get_test_set_predictions(model, args.test_images_dir, mean, std)
+    save_test_set_predictions(preds, 'submission.csv')
 
 
 def get_norm_stats(args):
