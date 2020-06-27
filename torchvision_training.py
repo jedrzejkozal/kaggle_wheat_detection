@@ -100,8 +100,6 @@ def train(args, summary_writer):
                 "epoch {}/{}: loss_classifier={:.4f}, loss_box_reg={:.4f}, loss_objectness={:.4f}, loss_rpn_box_reg={:.4f}".format(epoch + 1, args.epochs, output['loss_classifier'].item(), output['loss_box_reg'].item(), output['loss_objectness'].item(), output['loss_rpn_box_reg'].item()))
             optimizer.step()
 
-            break
-
         save_metrics(model, train_dataloader_val,
                      val_dataloader, summary_writer, epoch, num_classes)
 
@@ -182,14 +180,12 @@ def save_metrics(model, train_dataloader, val_dataloader, summary_writer, epoch,
         for img, target in train_dataloader:
             output = model(img)
             mAP_calc.add_predictions(output, target)
-            break
 
         mAP['train'] = mAP_calc.get_value()
 
         for img, target in val_dataloader:
             output = model(img)
             mAP_calc.add_predictions(output, target)
-            break
 
         mAP['val'] = mAP_calc.get_value()
         summary_writer.add_scalars('mAP', mAP, epoch)
