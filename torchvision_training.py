@@ -38,8 +38,8 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.003)
     parser.add_argument('--momentum', type=float, default=0.8)
     parser.add_argument('--device', type=str, default="cuda")
-    parser.add_argument('--min_area', type=float, default=0.15)
-    parser.add_argument('--min_visibility', type=float, default=0.15)
+    parser.add_argument('--min_area', type=float, default=0.3)
+    parser.add_argument('--min_visibility', type=float, default=0.3)
     parser.add_argument('--use_dataset_norm_stats',
                         action='store_true', default=True)
     parser.add_argument('--num_workers', type=int, default=0)
@@ -96,9 +96,9 @@ def train(args, summary_writer):
 
             optimizer.zero_grad()
             loss.backward()
-            print(
-                "epoch {}/{}: loss_classifier={:.4f}, loss_box_reg={:.4f}, loss_objectness={:.4f}, loss_rpn_box_reg={:.4f}".format(epoch + 1, args.epochs, output['loss_classifier'].item(), output['loss_box_reg'].item(), output['loss_objectness'].item(), output['loss_rpn_box_reg'].item()))
             optimizer.step()
+        print(
+            "epoch {}/{}: loss_classifier={:.4f}, loss_box_reg={:.4f}, loss_objectness={:.4f}, loss_rpn_box_reg={:.4f}".format(epoch + 1, args.epochs, output['loss_classifier'].item(), output['loss_box_reg'].item(), output['loss_objectness'].item(), output['loss_rpn_box_reg'].item()))
 
         save_metrics(model, train_dataloader_val,
                      val_dataloader, summary_writer, epoch, num_classes)
@@ -119,7 +119,7 @@ def get_train_transforms(min_area, min_visibility, mean, std):
     return A.Compose([
         A.VerticalFlip(p=0.5),
         A.Rotate(p=0.5, border_mode=cv2.BORDER_CONSTANT),
-        A.RandomSizedCrop((600, 600), 1024, 1024, p=0.5),
+        A.RandomSizedCrop((700, 700), 1024, 1024, p=0.5),
         A.Normalize(mean=mean, std=std),
         ToTensor()
     ],
@@ -141,6 +141,8 @@ def collate(samples, device=None):
     targets = []
     for img, bbox, label in samples:
         images.append(img.to(device))
+        if len(bbox) == 0:
+            bbox = [[]]
         bbox = torch.Tensor(bbox)
 
         bbox = xmin_ymin_width_height_to_xmin_ymin_xmax_ymax(bbox)
