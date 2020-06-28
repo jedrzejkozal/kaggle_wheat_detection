@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import functools
+import time
 import argparse
 import numpy as np
 import albumentations as A
@@ -38,11 +39,11 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.003)
     parser.add_argument('--momentum', type=float, default=0.8)
     parser.add_argument('--device', type=str, default="cuda")
-    parser.add_argument('--min_area', type=float, default=0.3)
-    parser.add_argument('--min_visibility', type=float, default=0.3)
-    parser.add_argument('--use_dataset_norm_stats',
-                        action='store_true', default=True)
-    parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--min-area', type=float, default=0.15)
+    parser.add_argument('--min-visibility', type=float, default=0.15)
+    parser.add_argument('--use-imagenet-norm-stats',
+                        action='store_true', default=False)
+    parser.add_argument('--num-workers', type=int, default=0)
 
     return parser.parse_args()
 
@@ -57,7 +58,7 @@ def store_hyperparams(args, summary_writer):
 
 
 def train(args, summary_writer):
-    mean, std = get_norm_stats(args)
+    mean, std = get_norm_stats(args.use_imagenet_norm_stats)
     train_transforms = get_train_transforms(
         args.min_area, args.min_visibility, mean, std)
     val_transforms = get_val_transforms(
@@ -89,6 +90,7 @@ def train(args, summary_writer):
     optimizer = get_optimizer(args, model.parameters())
 
     for epoch in range(args.epochs):
+        start = time.time()
         model.train()
         for img, target in train_dataloader:
             output = model(img, target)
@@ -97,8 +99,20 @@ def train(args, summary_writer):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        print(
-            "epoch {}/{}: loss_classifier={:.4f}, loss_box_reg={:.4f}, loss_objectness={:.4f}, loss_rpn_box_reg={:.4f}".format(epoch + 1, args.epochs, output['loss_classifier'].item(), output['loss_box_reg'].item(), output['loss_objectness'].item(), output['loss_rpn_box_reg'].item()))
+
+        duration = time.time() - start
+        print("epoch {}/{} duration {}: "
+              "loss_classifier={:.4f}, "
+              "loss_box_reg={:.4f}, "
+              "loss_objectness={:.4f}, "
+              "loss_rpn_box_reg={:.4f}"
+              .format(epoch + 1,
+                      args.epochs,
+                      time.strftime('%M:%S', time.gmtime(duration)),
+                      output['loss_classifier'].item(),
+                      output['loss_box_reg'].item(),
+                      output['loss_objectness'].item(),
+                      output['loss_rpn_box_reg'].item()))
 
         save_metrics(model, train_dataloader_val,
                      val_dataloader, summary_writer, epoch, num_classes)
@@ -108,11 +122,11 @@ def train(args, summary_writer):
     save_test_set_predictions(preds, 'submission.csv')
 
 
-def get_norm_stats(args):
-    if args.use_dataset_norm_stats:
-        return (0.3153, 0.3173, 0.2146), (0.0602, 0.0567, 0.0376)
-    else:
+def get_norm_stats(use_imagenet_norm_stats):
+    if use_imagenet_norm_stats:
         return (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
+    else:
+        return (0.3153, 0.3173, 0.2146), (0.0602, 0.0567, 0.0376)
 
 
 def get_train_transforms(min_area, min_visibility, mean, std):
@@ -140,6 +154,8 @@ def collate(samples, device=None):
     images = []
     targets = []
     for img, bbox, label in samples:
+        if bbox == []:
+            continue
         images.append(img.to(device))
         if len(bbox) == 0:
             bbox = [[]]
