@@ -18,8 +18,11 @@ from dataset import *
 
 def main():
     args = parse_args()
-    writer = SummaryWriter()
-    store_hyperparams(args, writer)
+
+    writer = None
+    if not args.test_run:
+        writer = SummaryWriter()
+        store_hyperparams(args, writer)
 
     device = torch.device(args.device)
     train_dataset, train_dataset_val, val_dataset, num_classes, mean, std = get_datasets(
@@ -62,6 +65,7 @@ def parse_args():
     parser.add_argument('--use-imagenet-norm-stats',
                         action='store_true', default=False)
     parser.add_argument('--num-workers', type=int, default=0)
+    parser.add_argument('--test-run', action='store_true', default=False)
 
     return parser.parse_args()
 
@@ -198,8 +202,9 @@ def train(model, dataloaders, optimizer, epochs, num_classes, summary_writer, te
                       output['loss_objectness'].item(),
                       output['loss_rpn_box_reg'].item()))
 
-        save_metrics(model, train_dataloader_val,
-                     val_dataloader, summary_writer, epoch, num_classes)
+        if summary_writer is not None:
+            save_metrics(model, train_dataloader_val,
+                         val_dataloader, summary_writer, epoch, num_classes)
 
 
 def save_metrics(model, train_dataloader, val_dataloader, summary_writer, epoch, num_classes):
