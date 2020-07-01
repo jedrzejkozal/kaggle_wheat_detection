@@ -41,7 +41,8 @@ def main():
           optimizer, args.epochs, num_classes, writer, args.test_images_dir)
 
     torch.save(model, 'faster_rcnn.pt')
-    preds = get_test_set_predictions(model, args.test_images_dir, mean, std)
+    preds = get_test_set_predictions(
+        model, args.test_images_dir, mean, std, device)
     save_test_set_predictions(preds, 'submission.csv')
 
 
@@ -187,6 +188,7 @@ def train(model, dataloaders, optimizer, epochs, num_classes, summary_writer, te
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            break
 
         duration = time.time() - start
         print("epoch {}/{} duration {}: "
@@ -201,7 +203,7 @@ def train(model, dataloaders, optimizer, epochs, num_classes, summary_writer, te
                       output['loss_box_reg'].item(),
                       output['loss_objectness'].item(),
                       output['loss_rpn_box_reg'].item()))
-
+        break
         if summary_writer is not None:
             save_metrics(model, train_dataloader_val,
                          val_dataloader, summary_writer, epoch, num_classes)
